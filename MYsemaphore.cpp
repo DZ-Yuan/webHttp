@@ -37,9 +37,7 @@ void MYsemaphore::acquire()
 void MYsemaphore::release()
 {
 	mtx_lockSum.lock();
-
-	cout << "Thread pid : " << this_thread::get_id() << "   release a lock" << endl;
-
+	//cout << "Thread pid : " << this_thread::get_id() << "   release a lock" << endl;
 	lockSum++;
 	cont.notify_one();
 

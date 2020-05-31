@@ -6,16 +6,13 @@ class Http
 {
 private:
     int client_sock;
-    int responseInfo_len;
+    int responseBody_len;
     char requestInfo[1000];
 
     char *request_method;
     char *url;
     char *httpVersion;
     char *acceptType;
-
-    char response_line[255];
-    char response_buf[1000];
 
     struct stat stat_buf;
 

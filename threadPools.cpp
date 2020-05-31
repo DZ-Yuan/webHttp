@@ -1,6 +1,5 @@
 #include "pch.h"
 
-
 threadPools::threadPools(int threadNum) : sem(threadNum)
 {
 	endThread = false;
@@ -12,7 +11,7 @@ void threadPools::start()
 {
 	for (int i = 0; i < max_thread; i++)
 	{
-		cout << "Create NO. " << i << "  thread" << endl;
+		//cout << "Create NO. " << i << "  thread" << endl;
 		threadpools.push_back(thread([&] {
 			while (!endThread)
 			{
@@ -64,6 +63,8 @@ void threadPools::start()
 	}
 
 	pools_isRun = true;
+	cout << "thread has been created" << endl;
+
 }
 
 void threadPools::doit()

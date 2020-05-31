@@ -9,7 +9,7 @@ Http::HTTP_STATUS_CODE Http::analyse_requestLine(char *http_req)
     // 网站资源位置
     urlpath = "./web";
 
-    // Get http request Mode
+    // 获取 http 请求方式
     this->request_method = p;
     while (*p != ' ')
         p++;
@@ -21,7 +21,7 @@ Http::HTTP_STATUS_CODE Http::analyse_requestLine(char *http_req)
         return BAD_REQUEST;
     }
 
-    // Get request url
+    // 获取 http url
     this->url = ++p;
     while (*p != ' ')
         p++;
@@ -99,7 +99,8 @@ void Http::response_OK()
         this->response_NOT_FOUND();
         return;
     }
-
+    // 获取文件大小
+    responseBody_len = stat_buf.st_size;
     // 发送响应头
     this->concat_response_header();
     send_size = send(client_sock, this->response_headers, strlen(this->response_headers), 0);
@@ -107,7 +108,7 @@ void Http::response_OK()
     while ((read_size = read(fp, response_body, 1500)) > 0)
     {
         send_size = send(client_sock, response_body, read_size, 0);
-        cout << "Server Responsed -- size(Byte): " << send_size << endl;
+        //cout << "Server Responsed -- size(Byte): " << send_size << endl;
         totalSend_size += send_size;
     }
 
@@ -155,9 +156,18 @@ void Http::concat_response_header()
         strcat(response_headers, "HTTP/1.1 200 ok\r\n");
         strcat(response_headers, "Server: Linux\r\n");
         // strcat(response_headers, "Content-type: text/html; charset=UTF-8\r\n");
-        // strcat(response_headers, "Content-Length: 20749\r\n");
-        strcat(response_headers, "Connection: close\r\n");
+        
+        strcat(response_headers, "Content-Length: ");
+        // 也可用sprintf 将int装str，再用strncat拼接前strlen()个字符获得Content-Length信息
+        strcat(response_headers, to_string(responseBody_len).c_str());
+        strcat(response_headers, "\r\n");
 
+        // 使用长连接要给出Content-Length值（body的长度）给客户端（浏览器）判断服务端该次数据传输是否结束
+        strcat(response_headers, "Connection: keep-alive\r\n");
+        // 使用分块传输（chunked）(unused)
+        //strcat(response_headers, "Transfer-Encoding: chunked\r\n");
+
+        //结束请求头信息
         strcat(response_headers, "\r\n");
         break;
 

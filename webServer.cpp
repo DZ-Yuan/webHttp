@@ -8,19 +8,12 @@ const int port = 1234;
 void webServer()
 {
     char sendBuf[255] = "Web Server has been receive request !";
-    char recvBuf[1000] = {0};
-    char requestInfo[1000] = {0};
 
-    // char response_body[2048];
-    int recv_size;
-    int read_size, send_size, totalSend_size;
-
-    struct stat stat_buf;
     deque<int> client_sock_deque;
 
-    Http http;
-    threadPools Tpools;
+    threadPools Tpools(50);
 
+    Tpools.start();
     //
     int m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -44,60 +37,89 @@ void webServer()
     struct sockaddr_in client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
 
+    Tpools.doit_auto();
+
     while (1)
     {
-        memset(recvBuf, 0, sizeof(recvBuf));
-        memset(requestInfo, 0, sizeof(requestInfo));
 
-        totalSend_size = 0;
+        cout << "Waiting for connection" << endl;
         int client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
 
-        // 设置非阻塞(永久) or recv(,,,MSG_DONTWAIT)
-        // int flags = fcntl(client_sock, F_GETFL, 0);
-        // fcntl(client_sock, F_SETFL, flags|O_NONBLOCK);
+        // ========================= 多线程 ============================
+        cout << "Client connect successful! " << endl;
+        client_sock_deque.push_back(client_sock);
 
-        if (client_sock < 0)
-        {
-            std::cout << "Error" << std::endl;
-        }
-        else
-        {
-            // --------------------------------------------------------------------
-            std::cout << "Client connect successful! " << std::endl;
+        Tpools.addTask([&] {
+            int clientSock = client_sock_deque.front(); 
+            client_sock_deque.pop_front();
 
-            recv(client_sock, recvBuf, 1000, 0);
-            // while (recv_size = recv(client_sock, recvBuf, 1000, MSG_DONTWAIT) > 0)
-            // {
-            //     cout << recvBuf << endl;
-            //     strcat(requestInfo, recvBuf);
-            // }
+            int recv_size;
+            char recvBuf[1000] = {0};
 
-            cout << recvBuf << endl;
-            // std::cout << "Client request :  \n"
-            //           << requestInfo;
-            cout << endl;
+            Http http;
 
-            cout << strlen(recvBuf) << endl;
-
-            if (strlen(recvBuf) > 100)
+            if (clientSock < 0)
             {
-                http.analysis(client_sock, recvBuf);
+                cout << "Error" << endl;
             }
             else
             {
-                cout << "unknow request" << endl;
+                // --------------------------------------------------------------------
+                while ((recv_size = recv(clientSock, recvBuf, 1000, 0)) > 0)
+                {
+                    cout << recvBuf << endl;
+                    cout << endl;
+
+                    cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+                    if (strlen(recvBuf) > 100)
+                    {
+                        http.analysis(clientSock, recvBuf);
+                    }
+                    else
+                    {
+                        cout << "unknow request" << endl;
+                    }
+
+                    memset(recvBuf, 0, sizeof(recvBuf));
+                }
             }
 
-            // ----------------------------------------------------------------------
-            //char buf[] = "HTTP/1.1 200 ok\r\nconnection: close\r\nContent-Type: text/html\r\n\r\n";
+            close(clientSock);
+            // shutdown(clientSock, SHUT_RDWR);
+            cout << "Client has been closed connection" << endl;
+        });
 
-            // send(client_sock, buf, sizeof(buf), 0);
-            // int fd = open("hello.html", O_RDONLY);
-            // sendfile(client_sock, fd, NULL, 4096);
+        // =================================================================
 
-            // close(fd);
-            // close(client_sock);
-        }
+        // ======================== 单线程 ==================================
+        // if (client_sock < 0)
+        // {
+        //     std::cout << "Error" << std::endl;
+        // }
+        // else
+        // {
+        //     std::cout << "Client connect successful! " << std::endl;
+        //     recv(client_sock, recvBuf, 1000, 0);
+
+        //     cout << recvBuf << endl;
+        //     cout << endl;
+
+        //     cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+        //     if (strlen(recvBuf) > 100)
+        //     {
+        //         http.analysis(client_sock, recvBuf);
+        //     }
+        //     else
+        //     {
+        //         cout << "unknow request" << endl;
+        //     }
+        //  }
+        // ===============================================================
+
+        // close(fd);
+        // close(client_sock);
     }
 }
 
@@ -135,6 +157,10 @@ void testWebServer()
     std::cout << "Listen Client connect..." << std::endl;
     struct sockaddr_in client_addr;
     socklen_t client_addr_size = sizeof(client_addr);
+
+    // 设置非阻塞(永久) or recv(,,,MSG_DONTWAIT)
+    // int flags = fcntl(client_sock, F_GETFL, 0);
+    // fcntl(client_sock, F_SETFL, flags|O_NONBLOCK);
 
     while (1)
     {
