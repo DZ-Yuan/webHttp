@@ -11,7 +11,7 @@ void webServer()
 
     deque<int> client_sock_deque;
 
-    threadPools Tpools(50);
+    threadPools Tpools(20);
 
     Tpools.start();
     //

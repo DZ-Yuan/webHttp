@@ -46,14 +46,14 @@ Http::HTTP_STATUS_CODE Http::analyse_requestLine(char *http_req)
         return NOT_FOUND;
     }
 
-    // Get http Version
+    // http Version
     this->httpVersion = ++p;
     while (*p != ' ')
         p++;
 
     p[0] = '\0';
 
-    p = nullptr; //?
+    p = nullptr; 
     return REQUEST_OK;
 }
 
@@ -100,14 +100,20 @@ void Http::response_OK()
         return;
     }
     // 获取文件大小
-    responseBody_len = stat_buf.st_size;
+    this->responseBody_len = stat_buf.st_size;
     // 发送响应头
     this->concat_response_header();
-    send_size = send(client_sock, this->response_headers, strlen(this->response_headers), 0);
+    if((send_size = send(client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    {
+        close(client_sock);
+    }
     // 发送响应内容 body
     while ((read_size = read(fp, response_body, 1500)) > 0)
     {
-        send_size = send(client_sock, response_body, read_size, 0);
+        if((send_size = send(client_sock, response_body, read_size, MSG_NOSIGNAL) == -1))
+        {
+            close(client_sock);
+        }
         //cout << "Server Responsed -- size(Byte): " << send_size << endl;
         totalSend_size += send_size;
     }
@@ -128,10 +134,16 @@ void Http::response_OK()
 void Http::response_BAD_REQUEST()
 {
     this->concat_response_header();
-    send(this->client_sock, this->response_headers, strlen(this->response_headers), 0);
+    if((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    {
+        close(this->client_sock);
+    }
 
     char sendbuf[] = "404 NOT FOUND";
-    send(this->client_sock, sendbuf, strlen(sendbuf), 0);
+    if((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
+    {
+        close(this->client_sock);
+    }
 }
 
 void Http::response_FORBIDDEN()
@@ -141,10 +153,16 @@ void Http::response_FORBIDDEN()
 void Http::response_NOT_FOUND()
 {
     this->concat_response_header();
-    send(this->client_sock, this->response_headers, strlen(this->response_headers), 0);
+    if((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    {
+        close(this->client_sock);
+    }
 
     char sendbuf[] = "404 NOT FOUND";
-    send(this->client_sock, sendbuf, strlen(sendbuf), 0);
+    if((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
+    {
+        close(this->client_sock);
+    }
 }
 
 void Http::concat_response_header()
