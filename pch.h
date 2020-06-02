@@ -13,6 +13,7 @@
 #include <sys/types.h> // open
 #include <sys/stat.h>
 #include <sys/fcntl.h>
+#include <sys/epoll.h>
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -20,6 +21,7 @@
 #include <unistd.h>
 #include <sys/sendfile.h>
 
+#include <errno.h>
 #include <assert.h>
 
 #include "Http.h"

@@ -3,7 +3,7 @@
 
 using namespace std;
 
-Http::HTTP_STATUS_CODE Http::analyse_requestLine(char *http_req)
+Http::HTTP_STATUS_CODE Http::analyse_requestHeader(char *http_req)
 {
     char *p = http_req;
     // 网站资源位置
@@ -53,7 +53,7 @@ Http::HTTP_STATUS_CODE Http::analyse_requestLine(char *http_req)
 
     p[0] = '\0';
 
-    p = nullptr; 
+    p = nullptr;
     return REQUEST_OK;
 }
 
@@ -62,7 +62,7 @@ void Http::analysis(int client_sock, char *http_req)
     strcpy(this->requestInfo, http_req);
     this->client_sock = client_sock;
 
-    status = analyse_requestLine(this->requestInfo);
+    status = analyse_requestHeader(this->requestInfo);
 
     switch (status)
     {
@@ -89,12 +89,12 @@ void Http::analysis(int client_sock, char *http_req)
 
 void Http::response_OK()
 {
-    int read_size = 0, send_size = 0, totalSend_size = 0;
+    int read_size = 0, send_size = 0, lastsend = 0, totalSend_size = 0;
     //bzero(this->response_buf, sizeof(this->response_buf));
 
     // 检查并打开需要发送的文件
     int fp = open(urlpath.c_str(), O_RDONLY);
-    if(fp < 0)
+    if (fp < 0)
     {
         this->response_NOT_FOUND();
         return;
@@ -103,19 +103,50 @@ void Http::response_OK()
     this->responseBody_len = stat_buf.st_size;
     // 发送响应头
     this->concat_response_header();
-    if((send_size = send(client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    if ((send_size = send(client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
     {
+        cout << "header send error" << endl;
         close(client_sock);
     }
     // 发送响应内容 body
     while ((read_size = read(fp, response_body, 1500)) > 0)
     {
-        if((send_size = send(client_sock, response_body, read_size, MSG_NOSIGNAL) == -1))
+        lastsend = 0;
+        while (1)
         {
-            close(client_sock);
+            // cout << "body size: " << strlen(response_body) << endl;
+            send_size = send(client_sock, response_body+lastsend, read_size, MSG_NOSIGNAL);
+            if (send_size == -1)
+            {
+                if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+                {
+                    // cout << "occur Error" << endl;
+                    continue;
+                }
+                else
+                {
+                    cout << "occur error" << endl;
+                    close(client_sock);
+                    break;
+                }
+            }
+
+            read_size -= send_size;
+            lastsend += send_size;
+            totalSend_size += send_size;
+            if (read_size == 0)
+            {
+                // cout << "package already send" << endl;
+                break;
+            }
         }
+        memset(response_body, 0, sizeof(response_body));
+        // if((send_size = send(client_sock, response_body, read_size, MSG_NOSIGNAL|MSG_WAITALL) == -1))
+        // {
+        //     cout << "body send error" << endl;
+        //     close(client_sock);
+        // }
         //cout << "Server Responsed -- size(Byte): " << send_size << endl;
-        totalSend_size += send_size;
     }
 
     // cout << "file: \n"
@@ -134,13 +165,13 @@ void Http::response_OK()
 void Http::response_BAD_REQUEST()
 {
     this->concat_response_header();
-    if((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    if ((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
     {
         close(this->client_sock);
     }
 
     char sendbuf[] = "404 NOT FOUND";
-    if((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
+    if ((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
     {
         close(this->client_sock);
     }
@@ -153,13 +184,13 @@ void Http::response_FORBIDDEN()
 void Http::response_NOT_FOUND()
 {
     this->concat_response_header();
-    if((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
+    if ((send(this->client_sock, this->response_headers, strlen(this->response_headers), MSG_NOSIGNAL)) == -1)
     {
         close(this->client_sock);
     }
 
     char sendbuf[] = "404 NOT FOUND";
-    if((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
+    if ((send(this->client_sock, sendbuf, strlen(sendbuf), MSG_NOSIGNAL)) == -1)
     {
         close(this->client_sock);
     }
@@ -174,7 +205,7 @@ void Http::concat_response_header()
         strcat(response_headers, "HTTP/1.1 200 ok\r\n");
         strcat(response_headers, "Server: Linux\r\n");
         // strcat(response_headers, "Content-type: text/html; charset=UTF-8\r\n");
-        
+
         strcat(response_headers, "Content-Length: ");
         // 也可用sprintf 将int装str，再用strncat拼接前strlen()个字符获得Content-Length信息
         strcat(response_headers, to_string(responseBody_len).c_str());

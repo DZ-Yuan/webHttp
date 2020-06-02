@@ -64,7 +64,6 @@ void threadPools::start()
 
 	pools_isRun = true;
 	cout << "thread has been created" << endl;
-
 }
 
 void threadPools::doit()
@@ -174,6 +173,13 @@ void threadPools::stop()
 	{
 		this->thread_taskManager.join();
 	}*/
+}
+
+void threadPools::getPoolsInfo()
+{
+	cout << "max_thread: " << this->threadpools.size() << endl;
+	cout << "sleepThread: " << this->sleepThread << endl;
+	cout << "tasks_size: " << this->tasks.size() << endl;
 }
 
 threadPools::~threadPools()

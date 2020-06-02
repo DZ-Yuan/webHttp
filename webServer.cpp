@@ -3,93 +3,223 @@
 
 using namespace std;
 
-const int port = 1234;
+const int port = 8080;
+
+// 设置socket非阻塞
+int setNonBlock(int sock)
+{
+    if ((fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK)) < 0)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+// flag == 0 --- ET, flag == 1 --- LT
+int epolladd(int sock, int epfd, epoll_event ep_ev, int ETLT_flag = 0)
+{
+    ep_ev.data.fd = sock;
+    if (ETLT_flag == 0)
+    {
+        ep_ev.events = EPOLLIN | EPOLLET;
+    }
+    else
+    {
+        ep_ev.events = EPOLLIN;
+    }
+    epoll_ctl(epfd, EPOLL_CTL_ADD, sock, &ep_ev);
+}
 
 void webServer()
 {
+    int m_sock, client_sock; // socket
+    int epfd, fds;           // epoll
     char sendBuf[255] = "Web Server has been receive request !";
-
     deque<int> client_sock_deque;
+    threadPools Tpools(10);
 
-    threadPools Tpools(20);
+    struct epoll_event ep_ev, fd_evnts[255];
 
     Tpools.start();
-    //
-    int m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
     if (m_sock < 0)
         std::cout << "Can't open Server connect";
 
     std::cout << "Open Server Connection..." << std::endl;
 
+    // 非阻塞
+    setNonBlock(m_sock);
+    // 端口复用
+    int flag = 1;
+    setsockopt(m_sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(m_sock));
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = inet_addr("172.18.184.76");
-    server_addr.sin_port = htons(1234);
+    server_addr.sin_port = htons(port);
 
     bind(m_sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
     listen(m_sock, 20);
-
     std::cout << "Listen Client connect..." << std::endl;
-    struct sockaddr_in client_addr;
-    socklen_t client_addr_size = sizeof(client_addr);
 
+    // epoll
+    // 注册监听事件
+    // epolladd(m_sock, epfd, ep_ev, 0);
+    epfd = epoll_create(20);
+    ep_ev.data.fd = m_sock;
+    ep_ev.events = EPOLLIN | EPOLLET;
+    int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, m_sock, &ep_ev);
+    cout << ret << endl;
+    
+    // 线程任务管理
     Tpools.doit_auto();
 
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_size = sizeof(client_addr);
     while (1)
     {
-
-        cout << "Waiting for connection" << endl;
-        int client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
-
-        // ========================= 多线程 ============================
-        cout << "Client connect successful! " << endl;
-        client_sock_deque.push_back(client_sock);
-
-        Tpools.addTask([&] {
-            int clientSock = client_sock_deque.front(); 
-            client_sock_deque.pop_front();
-
-            int recv_size;
-            char recvBuf[1000] = {0};
-
-            Http http;
-
-            if (clientSock < 0)
+        // ======================== epoll ==================================
+        fds = epoll_wait(epfd, fd_evnts, sizeof(fd_evnts), -1);
+        cout << "fds: " << fds << endl;
+        for (int i = 0; i < fds; i++)
+        {
+            if (fd_evnts[i].data.fd == m_sock)
             {
-                cout << "Error" << endl;
+                cout << "Client Connection" << endl;
+                client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
+                cout << "client_sock: " << client_sock << endl;
+                setNonBlock(client_sock);
+                // epolladd(client_sock, epfd, ep_ev, 0);
+                ep_ev.data.fd = client_sock;
+                ep_ev.events = EPOLLIN | EPOLLET;
+                int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, client_sock, &ep_ev);
+                cout << ret << endl;
             }
             else
             {
-                // --------------------------------------------------------------------
-                while ((recv_size = recv(clientSock, recvBuf, 1000, 0)) > 0)
-                {
-                    cout << recvBuf << endl;
-                    cout << endl;
+                cout << "Http Request" << endl;
+                client_sock_deque.push_back(fd_evnts[i].data.fd);
 
-                    cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+                // 添加任务给工作线程
+                Tpools.addTask([&] {
+                    int clientSock = client_sock_deque.front();
+                    client_sock_deque.pop_front();
+                    cout << "fd: " << clientSock << endl;
 
-                    if (strlen(recvBuf) > 100)
+                    int recv_size;
+                    char recvBuf[1000] = {0};
+
+                    Http http;
+
+                    if (clientSock < 0)
                     {
-                        http.analysis(clientSock, recvBuf);
+                        cout << "Error" << endl;
                     }
                     else
                     {
-                        cout << "unknow request" << endl;
+                        // --------------------------------------------------------------------
+                        while (1)
+                        {
+                            recv_size = recv(clientSock, recvBuf, 1000, 0);
+
+                            if (recv_size == 0)
+                            {
+                                cout << "FIN" << endl;
+                                close(clientSock);
+                                break;
+                            }
+                            else if (recv_size == -1)
+                            {
+                                if (errno == EAGAIN)
+                                {
+                                    cout << "EAGAIN" << endl;
+                                    break;
+                                }
+                                else
+                                {
+                                    cout << "errno: " << errno << endl;
+                                    close(clientSock);
+                                    break;
+                                }
+                            }
+
+                            cout << recvBuf << endl;
+                            cout << "recv_size: " << recv_size << endl;
+                            // cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+                            if (strlen(recvBuf) > 100)
+                            {
+                                http.analysis(clientSock, recvBuf);
+                            }
+                            else
+                            {
+                                cout << "unknow request" << endl;
+                            }
+
+                            memset(recvBuf, 0, sizeof(recvBuf));
+                        }
                     }
 
-                    memset(recvBuf, 0, sizeof(recvBuf));
-                }
+                    cout << "Client Request has been Done" << endl;
+                    // cout << "Client has been closed connection" << endl;
+                });
+                // Tpools.getPoolsInfo();
             }
+        }
+        //=========================================================================
 
-            close(clientSock);
-            // shutdown(clientSock, SHUT_RDWR);
-            cout << "Client has been closed connection" << endl;
-        });
+        // // ========================= 多线程 =====================================
+        // cout << "Waiting for connection" << endl;
+        // client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
 
+        // cout << "Client connect successful! " << endl;
+        // client_sock_deque.push_back(client_sock);
+
+        // Tpools.addTask([&] {
+        //     int clientSock = client_sock_deque.front();
+        //     client_sock_deque.pop_front();
+
+        //     int recv_size;
+        //     char recvBuf[1000] = {0};
+
+        //     Http http;
+
+        //     if (clientSock < 0)
+        //     {
+        //         cout << "Error" << endl;
+        //     }
+        //     else
+        //     {
+        //         // --------------------------------------------------------------------
+        //         while ((recv_size = recv(clientSock, recvBuf, 1000, 0)) > 0)
+        //         {
+        //             cout << recvBuf << endl;
+        //             cout << endl;
+
+        //             cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+        //             if (strlen(recvBuf) > 100)
+        //             {
+        //                 http.analysis(clientSock, recvBuf);
+        //             }
+        //             else
+        //             {
+        //                 cout << "unknow request" << endl;
+        //             }
+
+        //             memset(recvBuf, 0, sizeof(recvBuf));
+        //         }
+        //     }
+
+        //     close(clientSock);
+        //     // shutdown(clientSock, SHUT_RDWR);
+        //     cout << "Client has been closed connection" << endl;
+        // });
         // =================================================================
 
         // ======================== 单线程 ==================================

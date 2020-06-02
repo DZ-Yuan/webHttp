@@ -38,6 +38,7 @@ public:
 	void join();
 	void stop();
 
+	void getPoolsInfo();
 
 
 	~threadPools();

@@ -37,8 +37,8 @@ public:
     HTTP_STATUS_CODE status;
     
     void analysis(int, char *);
-    HTTP_STATUS_CODE analyse_requestLine(char *);
-    void request_head_analyse();
+    HTTP_STATUS_CODE analyse_requestHeader(char *);
+    //void request_head_analyse();
 
     void response_OK();
     void response_BAD_REQUEST();
