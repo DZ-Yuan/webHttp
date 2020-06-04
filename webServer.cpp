@@ -36,8 +36,8 @@ void webServer()
     int epfd, fds;           // epoll
     char sendBuf[255] = "Web Server has been receive request !";
     deque<int> client_sock_deque;
-    threadPools Tpools(10);
-
+    threadPools Tpools(20);
+    mutex mtx_dequeSock;
     struct epoll_event ep_ev, fd_evnts[255];
 
     Tpools.start();
@@ -75,7 +75,7 @@ void webServer()
     ep_ev.events = EPOLLIN | EPOLLET;
     int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, m_sock, &ep_ev);
     cout << ret << endl;
-    
+
     // 线程任务管理
     Tpools.doit_auto();
 
@@ -83,33 +83,37 @@ void webServer()
     socklen_t client_addr_size = sizeof(client_addr);
     while (1)
     {
-        // ======================== epoll ==================================
+        // ======================== epoll + 多线程 ==================================
         fds = epoll_wait(epfd, fd_evnts, sizeof(fd_evnts), -1);
         cout << "fds: " << fds << endl;
         for (int i = 0; i < fds; i++)
         {
             if (fd_evnts[i].data.fd == m_sock)
             {
-                cout << "Client Connection" << endl;
+                // cout << "Client Connection" << endl;
                 client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
-                cout << "client_sock: " << client_sock << endl;
+                // cout << "client_sock: " << client_sock << endl;
                 setNonBlock(client_sock);
                 // epolladd(client_sock, epfd, ep_ev, 0);
                 ep_ev.data.fd = client_sock;
                 ep_ev.events = EPOLLIN | EPOLLET;
                 int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, client_sock, &ep_ev);
-                cout << ret << endl;
+                // cout << ret << endl;
             }
             else
             {
                 cout << "Http Request" << endl;
+                mtx_dequeSock.lock();
                 client_sock_deque.push_back(fd_evnts[i].data.fd);
+                mtx_dequeSock.unlock();
 
                 // 添加任务给工作线程
                 Tpools.addTask([&] {
+                    mtx_dequeSock.lock();
                     int clientSock = client_sock_deque.front();
                     client_sock_deque.pop_front();
-                    cout << "fd: " << clientSock << endl;
+                    mtx_dequeSock.unlock();
+                    // cout << "fd: " << clientSock << endl;
 
                     int recv_size;
                     char recvBuf[1000] = {0};
@@ -147,10 +151,8 @@ void webServer()
                                     break;
                                 }
                             }
-
-                            cout << recvBuf << endl;
-                            cout << "recv_size: " << recv_size << endl;
-                            // cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+                            // cout << recvBuf << endl;
+                            // cout << "recv_size: " << recv_size << endl;
 
                             if (strlen(recvBuf) > 100)
                             {
@@ -163,94 +165,93 @@ void webServer()
 
                             memset(recvBuf, 0, sizeof(recvBuf));
                         }
+                        // cout << "Client has been closed connection" << endl;
                     }
-
-                    cout << "Client Request has been Done" << endl;
-                    // cout << "Client has been closed connection" << endl;
                 });
-                // Tpools.getPoolsInfo();
+                cout << "Client Request has been Done" << endl;
             }
+            // Tpools.getPoolsInfo();
         }
-        //=========================================================================
-
-        // // ========================= 多线程 =====================================
-        // cout << "Waiting for connection" << endl;
-        // client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
-
-        // cout << "Client connect successful! " << endl;
-        // client_sock_deque.push_back(client_sock);
-
-        // Tpools.addTask([&] {
-        //     int clientSock = client_sock_deque.front();
-        //     client_sock_deque.pop_front();
-
-        //     int recv_size;
-        //     char recvBuf[1000] = {0};
-
-        //     Http http;
-
-        //     if (clientSock < 0)
-        //     {
-        //         cout << "Error" << endl;
-        //     }
-        //     else
-        //     {
-        //         // --------------------------------------------------------------------
-        //         while ((recv_size = recv(clientSock, recvBuf, 1000, 0)) > 0)
-        //         {
-        //             cout << recvBuf << endl;
-        //             cout << endl;
-
-        //             cout << "requestInfo Length: " << strlen(recvBuf) << endl;
-
-        //             if (strlen(recvBuf) > 100)
-        //             {
-        //                 http.analysis(clientSock, recvBuf);
-        //             }
-        //             else
-        //             {
-        //                 cout << "unknow request" << endl;
-        //             }
-
-        //             memset(recvBuf, 0, sizeof(recvBuf));
-        //         }
-        //     }
-
-        //     close(clientSock);
-        //     // shutdown(clientSock, SHUT_RDWR);
-        //     cout << "Client has been closed connection" << endl;
-        // });
-        // =================================================================
-
-        // ======================== 单线程 ==================================
-        // if (client_sock < 0)
-        // {
-        //     std::cout << "Error" << std::endl;
-        // }
-        // else
-        // {
-        //     std::cout << "Client connect successful! " << std::endl;
-        //     recv(client_sock, recvBuf, 1000, 0);
-
-        //     cout << recvBuf << endl;
-        //     cout << endl;
-
-        //     cout << "requestInfo Length: " << strlen(recvBuf) << endl;
-
-        //     if (strlen(recvBuf) > 100)
-        //     {
-        //         http.analysis(client_sock, recvBuf);
-        //     }
-        //     else
-        //     {
-        //         cout << "unknow request" << endl;
-        //     }
-        //  }
-        // ===============================================================
-
-        // close(fd);
-        // close(client_sock);
     }
+    //=========================================================================
+
+    // // ========================= 多线程 =====================================
+    // cout << "Waiting for connection" << endl;
+    // client_sock = accept(m_sock, (struct sockaddr *)&client_addr, &client_addr_size);
+
+    // cout << "Client connect successful! " << endl;
+    // client_sock_deque.push_back(client_sock);
+
+    // Tpools.addTask([&] {
+    //     int clientSock = client_sock_deque.front();
+    //     client_sock_deque.pop_front();
+
+    //     int recv_size;
+    //     char recvBuf[1000] = {0};
+
+    //     Http http;
+
+    //     if (clientSock < 0)
+    //     {
+    //         cout << "Error" << endl;
+    //     }
+    //     else
+    //     {
+    //         // --------------------------------------------------------------------
+    //         while ((recv_size = recv(clientSock, recvBuf, 1000, 0)) > 0)
+    //         {
+    //             cout << recvBuf << endl;
+    //             cout << endl;
+
+    //             cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+    //             if (strlen(recvBuf) > 100)
+    //             {
+    //                 http.analysis(clientSock, recvBuf);
+    //             }
+    //             else
+    //             {
+    //                 cout << "unknow request" << endl;
+    //             }
+
+    //             memset(recvBuf, 0, sizeof(recvBuf));
+    //         }
+    //     }
+
+    //     close(clientSock);
+    //     // shutdown(clientSock, SHUT_RDWR);
+    //     cout << "Client has been closed connection" << endl;
+    // });
+    // =================================================================
+
+    // ======================== 单线程 ==================================
+    // if (client_sock < 0)
+    // {
+    //     std::cout << "Error" << std::endl;
+    // }
+    // else
+    // {
+    //     std::cout << "Client connect successful! " << std::endl;
+    //     recv(client_sock, recvBuf, 1000, 0);
+
+    //     cout << recvBuf << endl;
+    //     cout << endl;
+
+    //     cout << "requestInfo Length: " << strlen(recvBuf) << endl;
+
+    //     if (strlen(recvBuf) > 100)
+    //     {
+    //         http.analysis(client_sock, recvBuf);
+    //     }
+    //     else
+    //     {
+    //         cout << "unknow request" << endl;
+    //     }
+    //  }
+    // ===============================================================
+
+    // close(fd);
+    // close(client_sock);
 }
 
 // -------------------------  测试  -----------------------------------------
